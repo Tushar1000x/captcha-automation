@@ -1,59 +1,53 @@
 from flask import Flask, render_template, request
-import random, string
-from PIL import Image, ImageDraw, ImageFont
-import io
+from captcha.image import ImageCaptcha
+from PIL import Image
+import pytesseract
 import base64
+import io
+import random
+import string
 
 app = Flask(__name__)
-current_captcha = ""
-captcha_type = ""
 
+# Store current answer globally
+current_captcha_answer = ""
+
+# Set tesseract path for Windows users
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# Generate a random text CAPTCHA
 def generate_text_captcha():
+    global current_captcha_answer
     text = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
-    img = Image.new('RGB', (150, 60), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype("arial.ttf", 40)
-    draw.text((20, 10), text, font=font, fill=(0, 0, 0))
-    return text, img
+    current_captcha_answer = text
 
-def generate_math_captcha():
-    a = random.randint(1, 10)
-    b = random.randint(1, 10)
-    op = random.choice(['+', '-'])
-    question = f"{a} {op} {b}"
-    result = str(eval(question))
-    img = Image.new('RGB', (180, 60), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype("arial.ttf", 35)
-    draw.text((10, 10), f"Solve: {question}", font=font, fill=(0, 0, 0))
-    return result, img
+    image_gen = ImageCaptcha(width=160, height=60)
+    image = image_gen.generate_image(text)
+    return image
+
+# Convert image to base64 string for embedding
+def image_to_base64(img):
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
 
 @app.route("/", methods=["GET", "POST"])
 def login():
-    global current_captcha, captcha_type
+    global current_captcha_answer
 
     if request.method == "POST":
-        user = request.form["username"]
-        pwd = request.form["password"]
-        cap = request.form["captcha"]
+        username = request.form["username"]
+        password = request.form["password"]
+        user_input = request.form["captcha"].strip().upper()
 
-        if cap.strip().lower() == current_captcha.lower():
+        if user_input == current_captcha_answer:
             return "✅ Logged in"
         else:
             return "❌ CAPTCHA incorrect"
 
-    if random.choice([True, False]):
-        captcha_type = "text"
-        current_captcha, img = generate_text_captcha()
-    else:
-        captcha_type = "math"
-        current_captcha, img = generate_math_captcha()
-
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    img_b64 = base64.b64encode(buffer.getvalue()).decode()
-
-    return render_template("login.html", captcha_data=img_b64)
+    captcha_img = generate_text_captcha()  # Only text CAPTCHA now
+    captcha_data = image_to_base64(captcha_img)
+    return render_template("login.html", captcha_data=captcha_data)
 
 if __name__ == "__main__":
     app.run(debug=True)
